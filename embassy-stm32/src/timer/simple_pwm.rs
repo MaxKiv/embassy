@@ -335,6 +335,37 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         self.inner.set_frequency_internal(freq * multiplier, 16);
     }
 
+    /// Set PWM to a low sub 10 hz frequency.
+    ///
+    /// Note: that the frequency will not be applied in the timer until an update event
+    /// occurs.
+    pub fn set_frequency_low(&mut self, freq: f32) {
+        assert!(freq > 0.0);
+        assert!(freq < 10.0);
+
+        let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
+            2.0
+        } else {
+            1.0
+        };
+
+        let target = freq * multiplier;
+        let timer_clk = T::frequency().0 as f32;
+
+        const ARR: u32 = 0xFFFF;
+
+        let psc_f = (timer_clk / (target * (ARR as f32 + 1.0))) - 1.0;
+        let psc = psc_f.clamp(0.0, 65535.0) as u16;
+
+        let regs = self.inner.regs_core();
+
+        regs.psc().write_value(psc);
+        #[cfg(stm32l0)]
+        regs.arr().write(|r| r.set_arr(unwrap!(ARR.try_into())));
+        #[cfg(not(stm32l0))]
+        regs.arr().write(|r| r.set_arr(ARR as u16));
+    }
+
     /// Get the PWM driver frequency.
     pub fn get_frequency(&self) -> Hertz {
         self.inner.get_frequency()
